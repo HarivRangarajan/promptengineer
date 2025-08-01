@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Output directories
+output/
+debug_output/
+mini_wound_care_output/
+wound_care_optimization_output/
+wound_care_pipeline_output/
+wound_care_no_opt_output_*/
+
+# Data files (should be provided by users)
+examples/data/
+*.csv
+*.xlsx
+*.xls
+
+# Temporary files
+*.tmp
+*.temp
+
+# API keys and configs
+config.py
+.env 
