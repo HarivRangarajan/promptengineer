@@ -1,6 +1,6 @@
 # PromptEngineer
 
-A modular Python library for automated prompt engineering and LLM-as-a-Judge evaluation.
+A modular Python library for human centred prompt engineering.
 
 ## Overview
 
