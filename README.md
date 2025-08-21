@@ -106,19 +106,23 @@ generator.register_custom_technique(MyCustomTechnique())
 
 ```
 promptengineer/
-├── __init__.py                 # Main API
-├── core/
-│   ├── prompt_generator.py     # Main prompt generation engine
-│   ├── judge_generator.py      # LLM-as-a-judge prompt generation
-│   └── contextual_bandit.py    # Optimization system
-├── techniques/
-│   ├── base.py                 # Base classes and interfaces
-│   ├── chain_of_thought.py     # Chain of Thought implementation
-│   ├── chain_of_thoughtlessness.py  # Chain of Thoughtlessness implementation
-│   ├── chain_of_draft.py       # Placeholder for future implementation
-│   └── registry.py             # Technique management
-└── examples/
-    └── medical_wound_care.py    # Example usage
+├── __init__.py                     # Main API entry point
+├── core/                          # Core functionality
+│   ├── prompt_generator.py        # Main prompt generation engine
+│   ├── judge_generator.py         # LLM-as-a-judge prompt generation
+│   └── contextual_bandit.py       # Learning/optimization system
+├── techniques/                    # Prompt engineering techniques
+│   ├── base.py                    # Base classes and interfaces
+│   ├── chain_of_thought.py        # Fully implemented CoT technique
+│   ├── chain_of_thoughtlessness.py # Chain of Thoughtlessness implementation
+│   ├── chain_of_draft.py          # Chain of Draft implementation
+│   └── registry.py                # Technique management
+├── utils/                         # Utility functions
+├── examples/                      # Usage examples
+│   └── medical_wound_care.py      # Complete demo with medical data
+├── requirements.txt               # Dependencies
+├── setup.py                      # Installation script
+└── README.md                     # Comprehensive documentation
 ```
 
 ## Available Techniques

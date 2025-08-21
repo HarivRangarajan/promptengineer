@@ -12,6 +12,8 @@ from .core.prompt_generator import PromptGenerator
 from .core.judge_generator import JudgeGenerator
 from .core.contextual_bandit import ContextualBandit
 from .core.pipeline import PromptPipeline
+from .core.demonstration_generator import DemonstrationGenerator
+from .core.feedback_integrator import FeedbackIntegrator
 from .techniques.registry import TechniqueRegistry
 
 # Main API
@@ -20,6 +22,8 @@ __all__ = [
     "JudgeGenerator", 
     "ContextualBandit",
     "PromptPipeline",
+    "DemonstrationGenerator",
+    "FeedbackIntegrator",
     "TechniqueRegistry"
 ]
 
@@ -30,4 +34,8 @@ def create_prompt_engineer(api_key: str, model: str = "gpt-4o"):
 
 def create_judge_generator(api_key: str, model: str = "gpt-4o"):
     """Create a JudgeGenerator with default settings."""
-    return JudgeGenerator(api_key=api_key, model=model) 
+    return JudgeGenerator(api_key=api_key, model=model)
+
+def create_demonstration_generator(api_key: str, model: str = "gpt-4o", output_dir: str = "demonstration_output"):
+    """Create a DemonstrationGenerator with default settings."""
+    return DemonstrationGenerator(api_key=api_key, model=model, output_dir=output_dir) 
