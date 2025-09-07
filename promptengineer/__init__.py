@@ -12,19 +12,28 @@ from .core.prompt_generator import PromptGenerator
 from .core.judge_generator import JudgeGenerator
 from .core.contextual_bandit import ContextualBandit
 from .core.pipeline import PromptPipeline
-from .core.demonstration_generator import DemonstrationGenerator
-from .core.feedback_integrator import FeedbackIntegrator
+from .core.demonstration_generator import DemonstrationGenerator, SeedDemonstration
+from .core.mohs_feedback_integrator import FeedbackIntegrator
 from .techniques.registry import TechniqueRegistry
 
 # Main API
 __all__ = [
+    # Core classes
     "PromptGenerator",
     "JudgeGenerator", 
     "ContextualBandit",
     "PromptPipeline",
     "DemonstrationGenerator",
+    "SeedDemonstration",
     "FeedbackIntegrator",
-    "TechniqueRegistry"
+    
+    # Utility classes
+    "TechniqueRegistry",
+    
+    # Convenience functions
+    "create_prompt_engineer",
+    "create_judge_generator",
+    "create_demonstration_generator"
 ]
 
 # Convenience function for quick setup

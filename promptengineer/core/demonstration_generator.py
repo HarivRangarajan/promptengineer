@@ -27,6 +27,26 @@ class Demonstration:
     feedback: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     edited_content: Optional[str] = None
+    is_seed: bool = False  # Whether this is a seed demonstration
+
+
+@dataclass
+class SeedDemonstration:
+    """Represents a seed demonstration that guides generation structure."""
+    content: str
+    type: str  # "positive" or "negative"
+    description: Optional[str] = None  # Human description of what makes this a good example
+    structure_notes: Optional[str] = None  # Notes about the structure to replicate
+    
+    def to_demonstration(self, task_id: str, demo_id: str) -> Demonstration:
+        """Convert to a regular Demonstration object."""
+        return Demonstration(
+            id=demo_id,
+            content=self.content,
+            type=self.type,
+            status="accepted",  # Seed demonstrations are pre-accepted
+            is_seed=True
+        )
 
 
 @dataclass
@@ -47,6 +67,7 @@ class DemonstrationSet:
     negative_demonstrations: List[Demonstration] = field(default_factory=list)
     error_categories: List[ErrorCategory] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    seed_demonstrations: List[SeedDemonstration] = field(default_factory=list)  # Added seed demonstrations
 
 
 class DemonstrationGenerator:
@@ -257,15 +278,127 @@ class DemonstrationGenerator:
         }
         return priorities.get(category.lower(), 1)
     
+    def load_seed_demonstrations(self, seed_data: Union[str, List[Dict[str, Any]], List[SeedDemonstration]]) -> List[SeedDemonstration]:
+        """
+        Load seed demonstrations from various sources.
+        
+        Args:
+            seed_data: Can be:
+                - String path to JSON file containing seed demonstrations
+                - List of dictionaries with seed demonstration data
+                - List of SeedDemonstration objects
+                
+        Returns:
+            List of SeedDemonstration objects
+        """
+        if isinstance(seed_data, str):
+            # Load from file
+            try:
+                with open(seed_data, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return self._parse_seed_demonstrations_from_dict(data)
+            except Exception as e:
+                raise ValueError(f"Failed to load seed demonstrations from {seed_data}: {str(e)}")
+        
+        elif isinstance(seed_data, list):
+            if not seed_data:
+                return []
+            
+            # Check if it's already SeedDemonstration objects
+            if isinstance(seed_data[0], SeedDemonstration):
+                return seed_data
+            
+            # Assume it's a list of dictionaries
+            return self._parse_seed_demonstrations_from_dict(seed_data)
+        
+        else:
+            raise ValueError("seed_data must be a file path, list of dictionaries, or list of SeedDemonstration objects")
+    
+    def _parse_seed_demonstrations_from_dict(self, data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> List[SeedDemonstration]:
+        """Parse seed demonstrations from dictionary format."""
+        seed_demonstrations = []
+        
+        # Handle different data structures
+        if isinstance(data, dict):
+            # Check for common structures
+            if 'seed_demonstrations' in data:
+                demonstrations_data = data['seed_demonstrations']
+            elif 'demonstrations' in data:
+                demonstrations_data = data['demonstrations']
+            elif 'positive_examples' in data or 'negative_examples' in data:
+                demonstrations_data = []
+                if 'positive_examples' in data:
+                    for example in data['positive_examples']:
+                        demonstrations_data.append({
+                            'content': example,
+                            'type': 'positive'
+                        })
+                if 'negative_examples' in data:
+                    for example in data['negative_examples']:
+                        demonstrations_data.append({
+                            'content': example,
+                            'type': 'negative'
+                        })
+            else:
+                # Assume the entire dict is a single demonstration
+                demonstrations_data = [data]
+        else:
+            # List of demonstrations
+            demonstrations_data = data
+        
+        # Convert to SeedDemonstration objects
+        for demo_data in demonstrations_data:
+            if isinstance(demo_data, str):
+                # Just content, assume positive
+                seed_demonstrations.append(SeedDemonstration(
+                    content=demo_data,
+                    type='positive'
+                ))
+            elif isinstance(demo_data, dict):
+                seed_demonstrations.append(SeedDemonstration(
+                    content=demo_data.get('content', ''),
+                    type=demo_data.get('type', 'positive'),
+                    description=demo_data.get('description'),
+                    structure_notes=demo_data.get('structure_notes')
+                ))
+        
+        return seed_demonstrations
+    
+    def create_seed_demonstration(self, 
+                                content: str, 
+                                demo_type: str = 'positive', 
+                                description: Optional[str] = None,
+                                structure_notes: Optional[str] = None) -> SeedDemonstration:
+        """
+        Create a single seed demonstration programmatically.
+        
+        Args:
+            content: The demonstration content
+            demo_type: "positive" or "negative"
+            description: Optional description of what makes this a good example
+            structure_notes: Optional notes about structure to replicate
+            
+        Returns:
+            SeedDemonstration object
+        """
+        return SeedDemonstration(
+            content=content,
+            type=demo_type,
+            description=description,
+            structure_notes=structure_notes
+        )
+    
     def generate_initial_demonstrations(self, 
                                       prompt_data: Dict[str, str],
-                                      task_id: Optional[str] = None) -> DemonstrationSet:
+                                      task_id: Optional[str] = None,
+                                      seed_demonstrations: Optional[List[SeedDemonstration]] = None) -> DemonstrationSet:
         """
-        Generate initial set of demonstrations for a given prompt.
+        Generate initial set of demonstrations for a given prompt, optionally using seed demonstrations.
         
         Args:
             prompt_data: Parsed prompt data from load_prompt_file
             task_id: Optional identifier for this task
+            seed_demonstrations: Optional seed demonstrations to guide generation structure
             
         Returns:
             DemonstrationSet with generated demonstrations
@@ -273,34 +406,65 @@ class DemonstrationGenerator:
         if not task_id:
             task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        # Create meta-prompt for demonstration generation
-        meta_prompt = self._create_demonstration_meta_prompt(prompt_data)
+        # Process seed demonstrations if provided
+        if seed_demonstrations is None:
+            seed_demonstrations = []
         
-        # Generate positive demonstrations
-        positive_demos = self._generate_demonstrations(
-            meta_prompt, 
-            "positive", 
-            self.num_positive_demos,
-            task_id
-        )
+        # Create meta-prompt for demonstration generation (now includes seeds)
+        meta_prompt = self._create_demonstration_meta_prompt(prompt_data, seed_demonstrations)
         
-        # Generate negative demonstrations
-        negative_demos = self._generate_demonstrations(
-            meta_prompt, 
-            "negative", 
-            self.num_negative_demos,
-            task_id
-        )
+        # Start with seed demonstrations converted to regular demonstrations
+        positive_demos = []
+        negative_demos = []
+        
+        # Convert seed demonstrations to regular demonstrations
+        for i, seed_demo in enumerate(seed_demonstrations):
+            demo_id = f"{task_id}_seed_{seed_demo.type}_{i+1}"
+            regular_demo = seed_demo.to_demonstration(task_id, demo_id)
+            
+            if seed_demo.type == "positive":
+                positive_demos.append(regular_demo)
+            else:
+                negative_demos.append(regular_demo)
+        
+        # Calculate how many additional demonstrations to generate
+        additional_positive = max(0, self.num_positive_demos - len([d for d in seed_demonstrations if d.type == "positive"]))
+        additional_negative = max(0, self.num_negative_demos - len([d for d in seed_demonstrations if d.type == "negative"]))
+        
+        # Generate additional positive demonstrations if needed
+        if additional_positive > 0:
+            generated_positive = self._generate_demonstrations(
+                meta_prompt, 
+                "positive", 
+                additional_positive,
+                task_id,
+                seed_demonstrations
+            )
+            positive_demos.extend(generated_positive)
+        
+        # Generate additional negative demonstrations if needed
+        if additional_negative > 0:
+            generated_negative = self._generate_demonstrations(
+                meta_prompt, 
+                "negative", 
+                additional_negative,
+                task_id,
+                seed_demonstrations
+            )
+            negative_demos.extend(generated_negative)
         
         # Create demonstration set
         demo_set = DemonstrationSet(
             task_description=prompt_data.get("task_description", ""),
             positive_demonstrations=positive_demos,
             negative_demonstrations=negative_demos,
+            seed_demonstrations=seed_demonstrations,
             metadata={
                 "prompt_file": prompt_data.get("file_path", ""),
                 "created_at": datetime.now().isoformat(),
-                "generation_method": "initial_llm_generation"
+                "generation_method": "seed_guided_generation" if seed_demonstrations else "initial_llm_generation",
+                "seed_demonstrations_count": len(seed_demonstrations),
+                "generated_demonstrations_count": additional_positive + additional_negative
             }
         )
         
@@ -309,13 +473,127 @@ class DemonstrationGenerator:
         self._save_demonstration_set(task_id, demo_set)
         self._log_audit_event("initial_generation", task_id, {
             "positive_count": len(positive_demos),
-            "negative_count": len(negative_demos)
+            "negative_count": len(negative_demos),
+            "seed_count": len(seed_demonstrations),
+            "generated_count": additional_positive + additional_negative
         })
         
         return demo_set
     
-    def _create_demonstration_meta_prompt(self, prompt_data: Dict[str, str]) -> str:
+    def generate_demonstrations_with_seeds(self,
+                                         prompt_data: Dict[str, str],
+                                         seed_demonstrations: Union[str, List[Dict[str, Any]], List[SeedDemonstration]],
+                                         task_id: Optional[str] = None) -> DemonstrationSet:
+        """
+        Convenience method to generate demonstrations using seed demonstrations.
+        
+        Args:
+            prompt_data: Parsed prompt data from load_prompt_file
+            seed_demonstrations: Seed demonstrations in any supported format
+            task_id: Optional identifier for this task
+            
+        Returns:
+            DemonstrationSet with demonstrations guided by seeds
+        """
+        # Load and parse seed demonstrations
+        parsed_seeds = self.load_seed_demonstrations(seed_demonstrations)
+        
+        # Generate demonstrations using the seeds
+        return self.generate_initial_demonstrations(
+            prompt_data=prompt_data,
+            task_id=task_id,
+            seed_demonstrations=parsed_seeds
+        )
+    
+    def add_seed_to_existing_task(self, 
+                                task_id: str, 
+                                seed_demonstrations: Union[str, List[Dict[str, Any]], List[SeedDemonstration]]) -> DemonstrationSet:
+        """
+        Add seed demonstrations to an existing task and regenerate demonstrations.
+        
+        Args:
+            task_id: Existing task identifier
+            seed_demonstrations: Seed demonstrations to add
+            
+        Returns:
+            Updated DemonstrationSet
+        """
+        if task_id not in self.demonstration_sets:
+            raise ValueError(f"Task {task_id} not found")
+        
+        # Load and parse seed demonstrations
+        parsed_seeds = self.load_seed_demonstrations(seed_demonstrations)
+        
+        # Get existing demo set
+        demo_set = self.demonstration_sets[task_id]
+        
+        # Add seeds to the demonstration set
+        demo_set.seed_demonstrations.extend(parsed_seeds)
+        
+        # Update metadata
+        demo_set.metadata["seed_demonstrations_added_at"] = datetime.now().isoformat()
+        demo_set.metadata["total_seed_demonstrations"] = len(demo_set.seed_demonstrations)
+        
+        # Save updated demonstration set
+        self._save_demonstration_set(task_id, demo_set)
+        self._log_audit_event("seed_demonstrations_added", task_id, {
+            "new_seeds_count": len(parsed_seeds),
+            "total_seeds": len(demo_set.seed_demonstrations)
+        })
+        
+        return demo_set
+    
+    def get_seed_demonstrations_summary(self, task_id: str) -> Dict[str, Any]:
+        """
+        Get a summary of seed demonstrations for a task.
+        
+        Args:
+            task_id: Task identifier
+            
+        Returns:
+            Dictionary with seed demonstration summary
+        """
+        if task_id not in self.demonstration_sets:
+            raise ValueError(f"Task {task_id} not found")
+        
+        demo_set = self.demonstration_sets[task_id]
+        seeds = demo_set.seed_demonstrations
+        
+        positive_seeds = [s for s in seeds if s.type == "positive"]
+        negative_seeds = [s for s in seeds if s.type == "negative"]
+        
+        return {
+            "task_id": task_id,
+            "total_seeds": len(seeds),
+            "positive_seeds": len(positive_seeds),
+            "negative_seeds": len(negative_seeds),
+            "seeds_with_descriptions": len([s for s in seeds if s.description]),
+            "seeds_with_structure_notes": len([s for s in seeds if s.structure_notes]),
+            "seed_contents_preview": [
+                {
+                    "type": seed.type,
+                    "content_preview": seed.content[:100] + "..." if len(seed.content) > 100 else seed.content,
+                    "has_description": bool(seed.description),
+                    "has_structure_notes": bool(seed.structure_notes)
+                }
+                for seed in seeds
+            ]
+        }
+    
+    def _create_demonstration_meta_prompt(self, prompt_data: Dict[str, str], seed_demonstrations: List[SeedDemonstration]) -> str:
         """Create meta-prompt for demonstration generation."""
+        seed_examples_str = ""
+        if seed_demonstrations:
+            seed_examples_str = "Here are some seed demonstrations to guide the generation:\n\n"
+            for i, seed_demo in enumerate(seed_demonstrations):
+                seed_examples_str += f"Seed {i+1} ({seed_demo.type.upper()}):\n"
+                seed_examples_str += f"Content: {seed_demo.content}\n"
+                if seed_demo.description:
+                    seed_examples_str += f"Description: {seed_demo.description}\n"
+                if seed_demo.structure_notes:
+                    seed_examples_str += f"Structure Notes: {seed_demo.structure_notes}\n"
+                seed_examples_str += "-------------------------\n"
+        
         return f"""You are an expert at creating clear, instructive demonstrations for LLM training.
 
 TASK CONTEXT:
@@ -326,6 +604,8 @@ INSTRUCTIONS:
 
 CONSTRAINTS:
 {prompt_data.get('constraints', 'No specific constraints provided')}
+
+{seed_examples_str}
 
 Your job is to create demonstration examples that help another LLM understand how to correctly follow these instructions.
 
@@ -344,9 +624,15 @@ Focus on the most important aspects that an LLM might misunderstand or execute i
                                meta_prompt: str, 
                                demo_type: str, 
                                count: int,
-                               task_id: str) -> List[Demonstration]:
+                               task_id: str,
+                               seed_demonstrations: Optional[List[SeedDemonstration]] = None) -> List[Demonstration]:
         """Generate demonstrations using LLM."""
         demonstrations = []
+        
+        # Get relevant seed demonstrations for this type
+        relevant_seeds = []
+        if seed_demonstrations:
+            relevant_seeds = [seed for seed in seed_demonstrations if seed.type == demo_type]
         
         for i in range(count):
             # Create specific prompt for this demonstration
@@ -355,7 +641,22 @@ Focus on the most important aspects that an LLM might misunderstand or execute i
 Generate a {"positive (correct)" if demo_type == "positive" else "negative (incorrect)"} demonstration example.
 
 This should be demonstration #{i+1} of {count} {demo_type} examples.
-Make it distinct from the others while illustrating the same core principles.
+Make it distinct from the others while illustrating the same core principles."""
+
+            # Add guidance from seed demonstrations if available
+            if relevant_seeds:
+                specific_prompt += f"""
+
+IMPORTANT: Use the seed demonstrations above as structural and stylistic guidance.
+Follow similar patterns in terms of:
+- Content structure and organization
+- Level of detail and explanation
+- Tone and language style
+- Format and presentation
+
+The seed demonstrations show the preferred style - generate new content that follows these patterns but addresses different scenarios or aspects of the task."""
+
+            specific_prompt += """
 
 Return only the demonstration content, clearly structured and ready to use as training data."""
 
@@ -658,7 +959,8 @@ Your feedback helps improve the demonstration quality for future LLM training.
                     "id": demo.id,
                     "content": content,
                     "error_category": demo.error_category,
-                    "type": "positive"
+                    "type": "positive",
+                    "is_seed": demo.is_seed
                 })
         
         for demo in demo_set.negative_demonstrations:
@@ -668,7 +970,8 @@ Your feedback helps improve the demonstration quality for future LLM training.
                     "id": demo.id,
                     "content": content,
                     "error_category": demo.error_category,
-                    "type": "negative"
+                    "type": "negative",
+                    "is_seed": demo.is_seed
                 })
         
         final_output = {
@@ -697,12 +1000,14 @@ Your feedback helps improve the demonstration quality for future LLM training.
         if positive_demos:
             formatted += "✅ CORRECT EXAMPLES (Do this):\n"
             for i, demo in enumerate(positive_demos, 1):
-                formatted += f"\n{i}. {demo['content']}\n"
+                seed_indicator = " [SEED]" if demo.get('is_seed', False) else ""
+                formatted += f"\n{i}. {demo['content']}{seed_indicator}\n"
         
         if negative_demos:
             formatted += "\n❌ INCORRECT EXAMPLES (Avoid this):\n"
             for i, demo in enumerate(negative_demos, 1):
-                formatted += f"\n{i}. {demo['content']}\n"
+                seed_indicator = " [SEED]" if demo.get('is_seed', False) else ""
+                formatted += f"\n{i}. {demo['content']}{seed_indicator}\n"
         
         formatted += "\nFollow the patterns shown in the correct examples and avoid the mistakes shown in the incorrect examples.\n"
         
@@ -751,7 +1056,15 @@ Your feedback helps improve the demonstration quality for future LLM training.
                 }
                 for cat in demo_set.error_categories
             ],
-            "metadata": demo_set.metadata
+            "metadata": demo_set.metadata,
+            "seed_demonstrations": [
+                {
+                    "content": sd.content,
+                    "type": sd.type,
+                    "description": sd.description,
+                    "structure_notes": sd.structure_notes
+                } for sd in demo_set.seed_demonstrations
+            ]
         }
         
         with open(output_file, 'w') as f:
@@ -778,7 +1091,9 @@ Your feedback helps improve the demonstration quality for future LLM training.
         stats = {
             "total_tasks": len(self.demonstration_sets),
             "total_demonstrations": 0,
+            "total_seed_demonstrations": 0,
             "demonstration_status_counts": {"pending": 0, "accepted": 0, "rejected": 0, "edited": 0},
+            "seed_demonstration_counts": {"positive": 0, "negative": 0},
             "error_categories_addressed": set(),
             "audit_events": len(self.audit_trail)
         }
@@ -786,6 +1101,11 @@ Your feedback helps improve the demonstration quality for future LLM training.
         for demo_set in self.demonstration_sets.values():
             all_demos = demo_set.positive_demonstrations + demo_set.negative_demonstrations
             stats["total_demonstrations"] += len(all_demos)
+            
+            # Count seed demonstrations
+            stats["total_seed_demonstrations"] += len(demo_set.seed_demonstrations)
+            for seed in demo_set.seed_demonstrations:
+                stats["seed_demonstration_counts"][seed.type] += 1
             
             for demo in all_demos:
                 stats["demonstration_status_counts"][demo.status] += 1
