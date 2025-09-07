@@ -22,10 +22,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from promptengineer import PromptGenerator, JudgeGenerator, ContextualBandit
 from promptengineer.techniques.base import PromptContext
 
-# Import API key from config
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "configs"))
-from config import OPENAI_API_KEY
-
 
 def load_medical_prompts(csv_path: str = "data/prompts.csv") -> Dict[str, str]:
     """Load the existing medical prompts from CSV."""
@@ -245,10 +241,30 @@ def demonstrate_end_to_end_workflow(api_key: str):
     )
     print("Generated evaluation prompt for", judge_prompt.technique_evaluated)
     
-    # Simulate evaluation and feedback
-    simulated_evaluation_score = 0.85  # This would come from actual evaluation
-    bandit.update_reward(simulated_evaluation_score)
-    print(f"Updated bandit with reward: {simulated_evaluation_score}")
+    # Get evaluation score from judge prompt
+    # First, we need a sample response to evaluate (for demo purposes)
+    sample_input = "Patient asks: I'm having trouble removing the gauze, it seems stuck."
+    sample_response = "Gently moisten the gauze with warm water to help loosen it. Don't pull forcefully as this could damage the healing tissue."
+    
+    evaluation_response = judge_generator.evaluate_response(
+        judge_prompt=judge_prompt,
+        response_to_evaluate=sample_response,
+        original_input=sample_input
+    )
+    
+    # For demo purposes, extract a simple score from the evaluation
+    # In a real scenario, you'd parse the evaluation result more carefully
+    evaluation_text = evaluation_response["evaluation"].lower()
+    if "excellent" in evaluation_text or "good" in evaluation_text:
+        evaluation_score = 0.9
+    elif "satisfactory" in evaluation_text or "adequate" in evaluation_text:
+        evaluation_score = 0.7
+    else:
+        evaluation_score = 0.5
+    
+    bandit.update_reward(evaluation_score)
+    print(f"Updated bandit with reward: {evaluation_score}")
+    print(f"Evaluation result: {evaluation_response['evaluation'][:200]}...")
     
     print("\nWorkflow complete! The system has:")
     print("1. ✓ Selected optimal technique using contextual bandit")
@@ -260,10 +276,10 @@ def demonstrate_end_to_end_workflow(api_key: str):
 def main():
     """Main demonstration function."""
     # Use API key from config
-    api_key = OPENAI_API_KEY
+    api_key = os.environ.get("OPENAI_API_KEY")
     
-    if not api_key or api_key == "your-api-key-here":
-        print("Please set your OpenAI API key in configs/config.py to run this demo")
+    if not api_key:
+        print("Please set the OPENAI_API_KEY environment variable to run this demo")
         return
     
     try:
